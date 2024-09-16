@@ -47,3 +47,9 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Misc R Config Files
+*.Rproj
+
+# Misc Files
+.DS_Store
