@@ -1,3 +1,7 @@
 [submodule "CPSC540_Class_Repo"]
 	path = CPSC540_Class_Repo
 	url = https://github.com/chelseaparlett/CPSC540ParlettPelleriti.git
+
+[submodule "dependencies/broom.mixed"]
+	path = dependencies/broom.mixed
+	url = https://github.com/bbolker/broom.mixed.git
