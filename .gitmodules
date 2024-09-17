@@ -1,6 +1,7 @@
 [submodule "CPSC540 Class Repository"]
 	path = CPSC540 Class Repository
 	url = https://github.com/chelseaparlett/CPSC540ParlettPelleriti.git
+	branch = main
 
 [submodule "dependencies/broom.mixed"]
 	path = dependencies/broom.mixed
