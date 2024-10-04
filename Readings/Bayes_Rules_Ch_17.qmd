@@ -1,0 +1,390 @@
+
+```{r}
+# Load packages
+library(bayesrules)
+library(tidyverse)
+library(rstanarm)
+library(bayesplot)
+library(tidybayes)
+library(broom.mixed)
+
+# Load data
+data(cherry_blossom_sample)
+running <- cherry_blossom_sample
+
+conflicts()
+```
+But it turns out that the running data is missing some net race times. Since functions such as prediction_summary(), add_fitted_draws(), and add_predicted_draws() require complete information on each race, we’ll omit the rows with incomplete observations. In doing so, it’s important to use na.omit() after selecting our variables of interest so that we don’t throw out observations that have complete information on these variables just because they have incomplete information on variables we don’t care about.
+
+```{r}
+running <- running %>% 
+  dplyr::select(runner, age, net) %>% 
+  na.omit()
+```
+This model depends upon three global parameters: intercept β0, age coefficient β1, and variability from the regression model σ. Our posterior simulation results for these parameters from Section 15.1, stored in complete_pooled_model, are summarized below.
+
+```{r}
+complete_pooled_model <- stan_glm(
+  net ~ age, 
+  data = running, family = gaussian, 
+  prior_intercept = normal(0, 2.5, autoscale = TRUE),
+  prior = normal(0, 2.5, autoscale = TRUE), 
+  prior_aux = exponential(1, autoscale = TRUE),
+  chains = 4, iter = 5000*2, seed = 84735)
+
+# Posterior summary statistics
+model_summary <- tidy(complete_pooled_model, 
+                      conf.int = TRUE, conf.level = 0.80)
+model_summary
+```
+The vibe of this complete pooled model is captured by Figure 17.1: it lumps together all race results and describes the relationship between running time and age by a common global model. Lumped together in this way, a scatterplot of net running times versus age exhibit a weak relationship with a posterior median model of 75.2 + 0.268 age.
+
+```{r}
+# Posterior median model
+B0 <- model_summary$estimate[1]
+B1 <- model_summary$estimate[2]
+ggplot(running, aes(x = age, y = net)) + 
+  geom_point() + 
+  geom_abline(aes(intercept = B0, slope = B1))
+```
+To get a sense for the combined meaning of our prior models, we simulate 20,000 prior parameter sets using stan_glmer() with the following special arguments:
+
+    We specify the model of net times by age by the formula net ~ age + (1 | runner). This essentially combines a non-hierarchical regression formula (net ~ age) with that for a hierarchical model with no predictor (net ~ (1 | runner)).
+    
+    We specify prior_PD = TRUE to indicate that we wish to simulate parameters from the prior, not posterior, models.
+    
+```{r}
+running_model_1_prior <- stan_glmer(
+  net ~ age + (1 | runner), 
+  data = running, family = gaussian,
+  prior_intercept = normal(100, 10),
+  prior = normal(2.5, 1), 
+  prior_aux = exponential(1, autoscale = TRUE),
+  prior_covariance = decov(reg = 1, conc = 1, shape = 1, scale = 1),
+  chains = 4, iter = 5000*2, seed = 84735, 
+  prior_PD = TRUE)
+```
+Finally, we also simulate 100 datasets of race outcomes from the prior model, across a variety of runners and ages. The 100 density plots in Figure 17.3 (right) reflect the distribution of the net times in these simulated datasets. There is, again, quite a range in these simulations. Though some span ridiculous outcomes (e.g., negative net running times), the variety in the simulations and the general set of values they cover, adequately reflect our prior understanding and uncertainty. For example, since a 25- to 30-minute mile is a good walking (not running) pace, the upper values near 250-300 minutes for the entire 10-mile race seem reasonable.
+
+```{r}
+set.seed(84735)
+running %>% 
+  add_fitted_draws(running_model_1_prior, n = 4) %>%
+  ggplot(aes(x = age, y = net)) +
+    geom_line(aes(y = .value, group = paste(runner, .draw))) + 
+    facet_wrap(~ .draw)
+
+running %>%
+  add_predicted_draws(running_model_1_prior, n = 100) %>%
+  ggplot(aes(x = net)) +
+    geom_density(aes(x = .prediction, group = .draw)) +
+    xlim(-100,300)
+```
+After all of the buildup, let’s counter our prior understanding of the relationship between running time and age with some data. We plot the running times by age for each of our 36 runners below. This reaffirms our model-building process and some of our prior hunches. Most runners’ times do tend to increase with age, and there is variability between the runners themselves – some tend to be faster than others.
+
+```{r}
+ggplot(running, aes(x = age, y = net)) + 
+  geom_point() + 
+  facet_wrap(~ runner)
+```
+Combining our prior understanding with this data, we take a syntactical shortcut to simulate the posterior random intercepts model (17.5) of net times by age: we update() the running_model_1_prior with prior_PD = FALSE. We encourage you to follow this up with a check of the prior tunings as well as some Markov chain diagnostics:
+
+```{r}
+# Simulate the posterior
+running_model_1 <- update(running_model_1_prior, prior_PD = FALSE)
+
+# Check the prior specifications
+prior_summary(running_model_1)
+
+# Markov chain diagnostics
+mcmc_trace(running_model_1)
+mcmc_dens_overlay(running_model_1)
+mcmc_acf(running_model_1)
+neff_ratio(running_model_1)
+rhat(running_model_1)
+```
+There are a whopping 40 parameters in our model: 36 runner-specific intercept parameters (β0j) in addition to 4 global parameters (β0,β1,σy,σ0
+
+). These are labeled as follows in the stan_glmer() simulation results:
+
+    (Intercept) = β0
+
+age = β1
+b[(Intercept) runner:j] = b0j=β0j−β0
+, the difference between runner j
+’s baseline speed and the average baseline speed
+sigma = σy
+Sigma[runner:(Intercept),(Intercept)] = σ20
+
+We’ll keep our focus on the big themes here, first those related to the relationship between running time and age for the typical runner, and then those related to the variability from this average.
+
+
+Posterior summaries for β0 and β1, which are fixed across runners, are shown below.
+
+```{r}
+tidy_summary_1 <- tidy(running_model_1, effects = "fixed",
+                       conf.int = TRUE, conf.level = 0.80)
+tidy_summary_1
+```
+Accordingly, there’s an 80% chance that the typical runner tends to slow down somewhere between 1.02 and 1.58 minutes per year. The fact that this range is entirely and comfortably above 0 provides significant evidence that the typical runner tends to slow down with age. This assertion is visually supported by the 200 posterior plausible global model lines below, superimposed with their posterior median, all of which exhibit positive associations between running time and age. In plotting these model lines, note that we use add_fitted_draws() with re_formula = NA to specify that we are interested in the global, not group-specific, model of running times:
+
+```{r}
+B0 <- tidy_summary_1$estimate[1]
+B1 <- tidy_summary_1$estimate[2]
+running %>%
+  add_fitted_draws(running_model_1, n = 200, re_formula = NA) %>%
+  ggplot(aes(x = age, y = net)) +
+    geom_line(aes(y = .value, group = .draw), alpha = 0.1) +
+    geom_abline(intercept = B0, slope = B1, color = "blue") +
+    lims(y = c(75, 110))
+```
+In our next step, let’s examine what the hierarchical random intercepts model reveals about the runner-specific relationships between net running time and age,
+
+β0j+β1Xij=(β0+b0j)+β1Xij.
+
+We’ll do so by combining what we learned about the global age parameter β1
+above, with information on the runner-specific intercept terms β0j. The latter will require the specialized syntax we built up in Chapter 16, and thus some patience. First, the b[(Intercept) runner:j] chains correspond to the difference in the runner-specific and global intercepts b0j. Thus, we obtain MCMC chains for each β0j=β0+b0j by adding the (Intercept) chain to the b[(Intercept) runner:j] chains via spread_draws() and mutate(). We then use median_qi() to obtain posterior summaries of the β0j chain for each runner j:
+
+```{r}
+# Posterior summaries of runner-specific intercepts
+runner_summaries_1 <- running_model_1 %>%
+  spread_draws(`(Intercept)`, b[,runner]) %>% 
+  mutate(runner_intercept = `(Intercept)` + b) %>% 
+  dplyr::select(-`(Intercept)`, -b) %>% 
+  median_qi(.width = 0.80) %>% 
+  dplyr::select(runner, runner_intercept, .lower, .upper)
+```
+Consider the results for runners 4 and 5. With a posterior median intercept of 30.8 minutes vs 6.7 minutes, runner 4 seems to have a slower baseline speed than runner 5. Thus, at any shared age, we would expect runner 4 to run roughly 24.1 minutes slower than runner 5 (30.8−6.7):
+
+```{r}
+runner_summaries_1 %>% 
+  filter(runner %in% c("runner:4", "runner:5"))
+```
+These observations are echoed in the plots below, which display 100 posterior plausible models of net time by age for runners 4 and 5:
+
+```{r}
+# 100 posterior plausible models for runners 4 & 5
+running %>%
+  filter(runner %in% c("4", "5")) %>% 
+  add_fitted_draws(running_model_1, n = 100) %>%
+  ggplot(aes(x = age, y = net)) +
+    geom_line(
+      aes(y = .value, group = paste(runner, .draw), color = runner),
+      alpha = 0.1) +
+    geom_point(aes(color = runner))
+```
+We can similarly explore the models for all 36 runners, β0j+β1Xij. For a quick comparison, the runner-specific posterior median models are plotted below and superimposed with the posterior median global model, β0+β1Xij. This drives home the point that the global model represents the relationship between running time and age for the most average runner. The individual runner models vary around this global average, some with faster baseline speeds (β0j<β0) and some with slower baseline speeds (β0j>β0).
+
+```{r}
+# Plot runner-specific models with the global model
+ggplot(running, aes(y = net, x = age, group = runner)) + 
+  geom_abline(data = runner_summaries_1, color = "gray",
+              aes(intercept = runner_intercept, slope = B1)) + 
+  geom_abline(intercept = B0, slope = B1, color = "blue") + 
+  lims(x = c(50, 61), y = c(50, 135))
+```
+Posterior tidy() summaries for our variance parameters suggest that the running analysis is more like scenario (a) than scenario (b). For a given runner j, we estimate that their observed running time at any age will deviate from their mean regression model by roughly 5.25 minutes (σy). By the authors’ assessment (none of us professional runners!), this deviation is rather small in the context of a long 10-mile race, suggesting a rather strong relationship between running times and age within runners. In contrast, we expect that baseline speeds vary by roughly 13.3 minutes from runner to runner (σ0).
+
+```{r}
+tidy_sigma <- tidy(running_model_1, effects = "ran_pars")
+tidy_sigma
+```
+Thus, proportionally (16.9), differences between runners account for roughly 86.62% (the majority!) of the total variability in racing times, with fluctuations among individual races within runners explaining the other 13.38%:
+
+```{r}
+sigma_0 <- tidy_sigma[1,3]
+sigma_y <- tidy_sigma[2,3]
+sigma_0^2 / (sigma_0^2 + sigma_y^2)
+```
+```{r}
+sigma_y^2 / (sigma_0^2 + sigma_y^2)
+```
+Though this model recognizes that some runners tend to be faster than others, it assumes that the change in running time with age (β1) is the same for each runner. In reality, whereas some runners do slow down at similar rates (e.g., runners 4 and 5), some slow down quicker (e.g., runner 20) and some barely at all (e.g., runner 29).
+
+```{r}
+# Plot runner-specific models in the data
+running %>% 
+  filter(runner %in% c("4", "5", "20", "29")) %>% 
+  ggplot(., aes(x = age, y = net)) + 
+    geom_point() + 
+    geom_smooth(method = "lm", se = FALSE) + 
+    facet_grid(~ runner)
+```
+A snapshot of the observed trends for all 36 runners provides a more complete picture of just how much the change in net time with age might vary by runner:
+
+```{r}
+ggplot(running, aes(x = age, y = net, group = runner)) + 
+  geom_smooth(method = "lm", se = FALSE, size = 0.5)
+```
+Finally, let’s simulate the posterior of our hierarchical random intercepts and slopes model of running times (17.12). This requires one minor tweak to our stan_glmer() call: instead of using the formula net ~ age + (1 | runner) we use net ~ age + (age | runner). 
+
+```{r}
+running_model_2 <- stan_glmer(
+  net ~ age + (age | runner),
+  data = running, family = gaussian,
+  prior_intercept = normal(100, 10),
+  prior = normal(2.5, 1), 
+  prior_aux = exponential(1, autoscale = TRUE),
+  prior_covariance = decov(reg = 1, conc = 1, shape = 1, scale = 1),
+  chains = 4, iter = 5000*2, seed = 84735, adapt_delta = 0.99999
+)
+
+# Confirm the prior model specifications
+prior_summary(running_model_2)
+```
+Remember thinking that the 40 parameters in the random intercepts model was a lot? This new model has 78 parameters: 36 runner-specific intercept parameters β0j, 36 runner-specific age coefficients β1j, and 6 global parameters (β0,β1,σy,σ0,σ1,ρ
+
+). Let’s examine these piece by piece, starting with the global model of the relationship between running time and age,
+
+β0+β1X.
+
+The results here for the random intercepts and slopes model (17.12) are quite similar to those for the random intercepts model (17.5): the posterior median model is 18.5 + 1.32 age.
+
+```{r}
+# Quick summary of global regression parameters
+tidy(running_model_2, effects = "fixed", conf.int = TRUE, conf.level = 0.80)
+```
+Since the global mean model β0+β1X
+
+captures the relationship between running time and age for the average runner, we shouldn’t be surprised that our two hierarchical models produced similar assessments. Where these two models start to differ is in their assessments of the runner-specific relationships. Obtaining the MCMC chains for the runner-specific intercepts and slopes gets quite technical. We encourage you to pick through the code below, line by line. Here are some important details to pick up on:
+
+    spread_draws() uses b[term, runner] to grab the chains for all runner-specific parameters. As usual     now, these chains correspond to b0j and b1j, the differences between the runner-specific vs global
+    intercepts and age coefficients.
+    
+    pivot_wider() creates separate columns for each of the b0j and b1j chains and names these              b_(Intercept) and b_age.
+    
+    mutate() obtains the runner-specific intercepts β0j=β0+b0j, named runner_intercept, by summing the     global (Intercept) and runner-specific adjustments b_(Intercept). The runner-specific β1j              coefficients, runner_age, are created similarly.
+    
+```{r}
+# Get MCMC chains for the runner-specific intercepts & slopes
+runner_chains_2 <- running_model_2 %>%
+  spread_draws(`(Intercept)`, b[term, runner], `age`) %>% 
+  pivot_wider(names_from = term, names_glue = "b_{term}",
+              values_from = b) %>% 
+  mutate(runner_intercept = `(Intercept)` + `b_(Intercept)`,
+         runner_age = age + b_age)
+```
+From these chains, we can obtain the posterior medians for each runner-specific intercept and age coefficient. Since we’re only obtaining posterior medians here, we use summarize() in combination with group_by() instead of using the median_qi() function:
+
+```{r}
+# Posterior medians of runner-specific models
+runner_summaries_2 <- runner_chains_2 %>% 
+  group_by(runner) %>% 
+  summarize(runner_intercept = median(runner_intercept),
+            runner_age = median(runner_age))
+
+# Check it out
+head(runner_summaries_2, 3)
+```
+Plot the posterior median models for all 36 runners.
+
+```{r}
+ggplot(running, aes(y = net, x = age, group = runner)) + 
+  geom_abline(data = runner_summaries_2, color = "gray",
+              aes(intercept = runner_intercept, slope = runner_age)) + 
+  lims(x = c(50, 61), y = c(50, 135))
+```
+The slopes do differ, but not as drastically as we expected. But then we remembered – shrinkage! Consider sample runners 1 and 10. Their posteriors suggest that, on average, runner 10’s running time increases by just 1.06 minute per year, whereas runner 1’s increases by 1.75 minutes per year:
+
+```{r}
+runner_summaries_2 %>% 
+  filter(runner %in% c("runner:1", "runner:10"))
+```
+Stepping back, we should also ask ourselves: Is it worth it? Incorporating the random runner-specific age coefficients introduced 37 parameters into our model of running time by age. Yet at least visually, there doesn’t appear to be much variation among the slopes of the runner-specific models. For a numerical assessment of this variation, we can examine the posterior trends in σ1 (sd_age.runner). While we’re at it, we’ll also check out σ0 (sd_(Intercept).runner), ρ (cor_(Intercept).age.runner), and σy (sd_Observation.Residual):
+
+```{r}
+tidy(running_model_2, effects = "ran_pars")
+```
+Consider some highlights of this output:
+
+    The standard deviation σ1 in the age coefficients β1j is likely around 0.251 minutes per year. On      the scale of a 10-mile race, this indicates very little variability between the runners when it        comes to the rate at which running times change with age.
+
+    Per the output for σy, an individual runner’s net times tend to deviate from their own mean model      by roughly 5.17 minutes.
+
+    There’s a weak negative correlation of roughly -0.0955 between the runner-specific β0j
+    and β1j parameters. Thus, it seems that, ever so slightly, runners that start off faster tend to       slow down at a faster rate.
+    
+    
+Next, consider question (2). Posterior predictive checks suggest that the complete pooled model comparatively underestimates the variability in running times – datasets of running time simulated from the complete pooled posterior tend to exhibit a slightly narrower range than the running times we actually observed. Thus, the complete pooled model is more wrong than the hierarchical models.
+
+```{r}
+pp_check(complete_pooled_model) + 
+  labs(x = "net", title = "complete pooled model")
+pp_check(running_model_1) + 
+  labs(x = "net", title = "running model 1")
+pp_check(running_model_2) + 
+  labs(x = "net", title = "running model 2")
+```
+In fact, we know that the complete pooled model is wrong. By ignoring the data’s grouped structure, it incorrectly assumes that each race observation is independent of the others. Depending upon the trade-offs, we might live with this wrong but simplifying assumption in some analyses. Yet at least two signs point to this being a mistake for our running analysis.
+
+    The complete pooled model isn’t powerful enough to detect the significant relationship between         running time and age.
+    
+    Not only have we seen visual evidence that some runners tend to be significantly faster or slower      than others, the posterior prediction summaries in Section 17.2.4 suggest that there’s significant     variability between runners (σ0).
+
+In light of this discussion, let’s drop the complete pooled model from consideration. In choosing between running_model_1 and running_model_2, consider question (3): what’s the predictive accuracy of these models? Recall some approaches to answering this question from Chapter 11: posterior prediction summaries and ELPD. To begin, we use the prediction_summary() function from the bayesrules package to compare how well these two models predict the running outcomes of the 36 runners that were part of our sample.
+
+```{r}
+# Calculate prediction summaries
+set.seed(84735)
+prediction_summary(model = running_model_1, data = running)
+```
+```{r}
+prediction_summary(model = running_model_2, data = running)
+
+```
+Thinking beyond our own sample of runners, we could also utilize prediction_summary_cv() to obtain cross-validated metrics of posterior predictive accuracy. The idea is the same as for non-hierarchical models, but the details change to reflect the grouped structure of our data. To explore how well our models predict the running behavior of runners that weren’t included in our sample data, we divide the runners, not the individual race outcomes, into distinct folds. For example, for a 10-fold cross validation with 36 runners, each fold would include data on 3 or 4 of the sample runners. Thus, we would train each of 10 models using data on 32 or 33 of our sample runners and test it on the other 3 or 4. We include code for the curious but do not run it here.
+
+```{r}
+prediction_summary_cv(model = running_model_1, data = running,
+                      k = 10, group = "runner")
+```
+Finally, consider one last comparison of our two hierarchical models: the cross-validated expected log-predictive densities (ELPD). The estimated ELPD for running_model_1 is lower (worse) than, though within two standard errors of, the running_model_2 ELPD. Hence, by this metric, there is not a significant difference in the posterior predictive accuracy of our two hierarchical models.
+
+```{r}
+# Calculate ELPD for the 2 models
+elpd_hierarchical_1 <- loo(running_model_1)
+elpd_hierarchical_2 <- loo(running_model_2)
+
+
+# Compare the ELPD
+loo_compare(elpd_hierarchical_1, elpd_hierarchical_2)
+                elpd_diff se_diff
+```
+After reflecting upon our model evaluation, we’re ready to make a final determination: we choose running_model_1. The choice of running_model_1 over the complete_pooled_model was pretty clear: the latter was wrong and didn’t have the power to detect a relationship between running time and age. The choice of running_model_1 over running_model_2 comes down to this: the complexity introduced by the additional random age coefficients in running_model_2 produced little apparent change or benefit. Thus, the additional complexity simply isn’t worth it (at least not to us).
+
+
+Finally, let’s use our preferred model, running_model_1, to make some posterior predictions.
+
+```{r}
+# Plot runner-specific trends for runners 1 & 10
+running %>% 
+  filter(runner %in% c("1", "10")) %>% 
+  ggplot(., aes(x = age, y = net)) + 
+    geom_point() + 
+    facet_grid(~ runner) + 
+    lims(x = c(54, 61))
+```
+The resulting posterior predictive model will reflect two sources of uncertainty in runner j’s race time: the within-group sampling variability σy (we can’t perfectly predict runner j’s time from their mean model); and posterior variability in β0j, β1, and σy (the parameters defining runner j’s relationship between running time and age are unknown and random). Since we don’t have any data on the baseline speed for our new runner, Miles, there’s a third source of uncertainty in predicting his race time: between-group sampling variability σ0 (baseline speeds vary from runner to runner). Though we recommend doing these simulations “by hand” to connect with the concepts of posterior prediction (as we did in Chapter 16), we’ll use the posterior_predict() shortcut function to simulate the posterior predictive models for our three runners:
+
+```{r}
+# Simulate posterior predictive models for the 3 runners
+set.seed(84735)
+predict_next_race <- posterior_predict(
+  running_model_1, 
+  newdata = data.frame(runner = c("1", "Miles", "10"),
+                       age = c(61, 61, 61)))
+```
+These posterior predictive models are plotted in Figure 17.20. As anticipated from their previous trends, our posterior expectation is that runner 10 will have a slower time than runner 1 when they’re 61 years old. Our posterior predictive model for Miles’ net time is somewhere in between these two extremes. The posterior median prediction is just under 100 minutes, similar to what we’d get if we plugged an age of 61 into the global posterior median model for the average runner:
+
+```{r}
+B0 + B1 * 61
+```
+That is, without any information about Miles, our default assumption is that he’s an average runner. Our uncertainty in this assumption is reflected by the relatively wide posterior predictive model. Naturally, having observed data on runners 1 and 10, we’re more certain about how fast they will be when they’re 61. But Miles is a wild card – he could be really fast or really slow!
+
+```{r}
+# Posterior predictive model plots
+mcmc_areas(predict_next_race, prob = 0.8) +
+ ggplot2::scale_y_discrete(labels = c("runner 1", "Miles", "runner 10"))
+```
+
+
