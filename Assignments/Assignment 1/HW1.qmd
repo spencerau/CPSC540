@@ -41,6 +41,63 @@ If you would like to work in a group of **up to 2** you can, but must choose **o
 
 # Report Sections
 
+# Intro/Background
+
+## Import Libraries
+
+```{r}
+library(ggplot2)
+library(dplyr)
+```
+
+## Import Data
+
+```{r}
+library(readr)
+crime_data <- read_csv("Crime_Data_from_2020_to_Present.csv",
+                                            locale = locale(tz = "America/Los_Angeles"))
+View(crime_data)
+```
+
+## Scatterplot of Age on Time OCC
+
+-   Does the age of the victim (`Vict Age`) have a causal effect on the time a crime occured (`Time Occ`)?
+
+-   Does the sex of the victim (`Vict Sex`) cause the `Status` of the crime?
+
+```{r, fig.width=20, fig.height=15}
+
+# filter out rows where Vict Age is <= 0
+crime_data <- crime_data %>% filter(`Vict Age` > 0)
+
+# convert TIME OCC to numeric, check for issues with parsing, and then remove rows with issues
+crime_data$`TIME OCC` <- as.numeric(crime_data$`TIME OCC`)
+problems(crime_data)
+crime_data <- crime_data[!is.na(crime_data$`TIME OCC`), ]
+
+# convert to minutes since midnight
+crime_data$time_in_minutes <- (crime_data$'TIME OCC' %/% 100) * 60 + (crime_data$'TIME OCC' %% 100)
+# explicit conversion of time_in_minutes to numeric
+crime_data$time_in_minutes <- as.numeric(crime_data$time_in_minutes)
+
+# str(crime_data$time_in_minutes)
+
+# TIME_OCC is a numeric column in HHMM format
+ggplot(crime_data, aes(x = `Vict Age`, y = time_in_minutes)) +
+        geom_point() +
+        #geom_density2d(color = "blue") + 
+        labs(x = "Victim Age", y = "Time Occured", title = "Victim Age to Time Occured for Crime") +
+        theme_minimal() +
+        scale_x_continuous(breaks = seq(0, 100, by = 5))
+        # %/% 100 extracts the hour from HHMM.
+	    # %% 100 extracts the minutes from HHMM.
+	    # scale_y_continuous() helps format the y-axis ticks into a readable HH:MM format.
+        scale_y_continuous(
+            breaks = seq(0, 1440, by = 30),
+            labels = function(x) sprintf("%02d:%02d", x %/% 60, x %% 60)
+        )
+```
+
 You should turn in a **readme**, a **code** file (.R, .Rmd, .qmd...etc) of your R code for analysis and a written **report**. The report should have the following sections:
 
 -   **Intro/Background**: Tell us about your **data set**, and your **research question**. Do some exploratory data analysis (make plots of relevant variables, make note of missing data, interesting patterns, relevant variables).
