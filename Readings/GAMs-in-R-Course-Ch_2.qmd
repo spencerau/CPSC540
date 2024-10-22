@@ -1,0 +1,269 @@
+```{r}
+library(gamair)
+data("mpg", package="gamair")
+
+library(mgcv)
+
+mod_hwy <- gam(hw.mpg ~ s(weight) + s(rpm) + 
+               s(price) + s(comp.ratio) +
+               s(width) + fuel + cylinders,
+               data = mpg, method = "REML")
+
+summary(mod_hwy)
+```
+
+INTIAL SUMMARY:
+The first part of the summary describes the model we fit. The "Family" component tells us the model assumes a Gaussian or normal distribution of our errors, and the "Link" of "identity" shows that the model doesn't transform the predictions.
+
+PARAMETRIC COEFFICIENTS:
+The next section describes the parametric terms of our model. Parametric means models that have a pre-determined form. In this context, it refers to the linear terms in the model.
+
+This section may be familiar from linear modeling. It shows the coefficients for the linear terms in the model, their values, errors, test statistics, and p-values. Asterisks next to the p-values indicate statistical significance. In this case, the model intercept is significant, but the fixed effect of fuel type is only significant at the 0.1 level.
+
+APPROXIMATE SIGNIFICANCE OF SMOOTH TERMS:
+The next section covers smooth terms. For smooths coefficients are not printed. This is because each smooth has several coefficients - one for each basis function. Instead, the first column reads edf, which stands for effective degrees of freedom. This value represents the complexity of the smooth. An edf of 1 is equivalent to a straight line. An edf of 2 is equivalent to a quadratic curve, and so on, with higher edfs describing more wiggly curves.
+
+We can see this by plotting. Here are partial effect plots for the weight and compression ratio smooths. You can see the weight smooth, with an edf over 6, is complex and wiggly. But the compression ratio smooth, with an edf of 1, is linear.
+
+The terms to the right of the EDF column have to do with significance testing for smooths. The Ref.df and F columns are test statistics used in an ANOVA test to test overall significance of the smooth. The result of this test is the p-value to the right. It's important to note that these values are approximate, and it's important to visualize your model to check them.
+
+A good way to interpret significance for smooth terms in GAMs is this: a significant smooth term is one where you can not draw a horizontal line through the 95% confidence interval.
+
+If we look at plots of the weight and price smooths, we see this. Clearly a horizontal line can't go through the weight smooth confidence interval, but a horizontal line just fits inside the price smooth interval.
+
+Note that high EDF doesn't mean significance or vice-versa. A smooth may be linear and significant, non-linear and non-significant, or one of each.
+
+In this model, the price term is non-linear but non-significant, meaning it has some complexity but there isn't certainty as to the shape or direction of its effect. Compression ratio is linear but significant. Width is neither.
+```{r}
+# divider
+```
+
+It’s time for you to summarize a model and interpret the output.
+
+Instructions
+
+    Summarize the mod_city4 model, then answer the questions.
+    
+price is significant (p < 0.05) and linear (edf near 1).
+
+length is non-significant (p = 0.421 > 0.005) and non-linear (edf = 2.943 > 1)
+
+
+    
+```{r}
+library(gamair)
+data("mpg", package="gamair")
+
+library(mgcv)
+# Fit the model
+mod_city4 <- gam(city.mpg ~ s(weight) + s(length) + s(price) + s(rpm) + s(width),
+                 data = mpg, method = "REML")
+
+# View the summary
+summary(mod_city4)
+```
+For our first plotting exercise, we’ll add partial residuals to the partial effect plot of a GAM so as to compare the model to the data.
+
+    Plot the model (mod) that uses mcycle data. Add partial residuals to the plot.
+    Make a second plot, making partial residuals more visible by changing the shape using the pch argument, and size of the residuals using the cex argument. Set both the pch and cex arguments to 1.
+    
+    It's often helpful to make these more visible with the pch argument, which changes the shape of the residuals points and the cex argument, which changes the size.
+
+```{r}
+mcycle <- MASS::mcycle
+
+library(mgcv)
+# Fit the model
+mod <- gam(accel ~ s(times), data = mcycle, method = "REML")
+
+# Make the plot with residuals
+plot(mod, residuals = TRUE)
+
+# Change shape of residuals
+plot(mod, residuals = TRUE, pch = 1, cex = 1)
+```
+In plotting GAMs, you sometimes want to look at just parts of a model, or all the terms in model. Here you’ll practice selecting which terms to visualize.
+
+Instructions
+
+    Plot the provided model (mod) that uses the mpg data, using the select term to view only the partial effect of price.
+    Make another plot, this time showing all terms on a single page, including the linear comp.ratio term.
+
+```{r}
+library(gamair)
+data("mpg", package="gamair")
+
+library(mgcv)
+# Fit the model
+mod <- gam(hw.mpg ~ s(weight) + s(rpm) + s(price) + comp.ratio, 
+           data = mpg, method = "REML")
+
+# Plot the price effect
+plot(mod, select = 3)
+
+# Plot all effects
+plot(mod, pages = 1, all.terms = TRUE)
+```
+Confidence intervals are a very important visual indicator of model fit. Here you’ll practice changing the appearance of confidence intervals and transforming the scale of partial effects plots.
+
+Instructions
+
+    Plot the model (mod) that uses the mpg data, plotting only the partial effect of weight. Make the confidence interval shaded and "hotpink" in color.
+    
+    Make another plot of the weight partial effect, this time shifting the scale by the value of the intercept using the shift argument, and including the uncertainty of the model intercept using the seWithMean argument.
+
+```{r}
+library(gamair)
+data("mpg", package="gamair")
+
+library(mgcv)
+# Fit the model
+mod <- gam(hw.mpg ~ s(weight) + s(rpm) + s(price) + comp.ratio, 
+           data = mpg, method = "REML")
+
+# Plot the weight effect with colored shading
+plot(mod, select = 1, shade = TRUE, shade.col = "hotpink")
+
+# Make another plot adding the intercept value and uncertainty
+plot(mod, select = 1, shade = TRUE, shade.col = "hotpink", 
+     seWithMean = TRUE, shift = coef(mod)[1])
+```
+
+```{r}
+# general format code
+mod <- gam(y ~ s(x1, k = 4) + s(x2, k = 4),
+           data = check_data, method = "REML")
+
+gam.check(mod)
+```
+Running gam.check() on a model provides several outputs, in both the console and as plots. We'll start with the console output.
+
+First, gam.check() reports on model convergence. Here, it reports full convergence. R has found a best solution. If the model has not converged, results are likely not correct. This can happen when there are too many parameters in the model for not enough data.
+
+Below, we see a table of basis checking results. This shows a statistical test for patterns in model residuals, which should be random. Each line reports the test results for one smooth. It shows the k value or number of basis functions, the effective degrees of freedom, a test statistic, and p-value.
+
+Here, small p-values indicate that residuals are not randomly distributed. This often means there are not enough basis functions. 
+
+This is an approximate test. Always visualize your results too, and compare the k and edf values in addition to looking at the p-value.
+
+If we re-fit our model with higher k , we see that this test is no longer significant. However, now we see a problem with the second smooth - the p-value for its test is now significant. Fixing one problem can reveal another. So it is always important to re-run gam.check after changing models.
+         
+gam.check() will also generate four plots. Each of these gives a different way of looking at your model residuals. These plots show the results from the original, poorly fit model. On the top-left is a Q-Q plot, which compares the model residuals to a normal distribution. A well-fit model's residuals will be close to a straight line. On bottom left is a histogram of residuals. We would expect this to have a symmetrical bell shape. On top-right is a plot of residual values. These should be evenly distributed around zero. Finally, on the bottom-right is plot of response against fitted values. A perfect model would form a straight line. We don't expect a perfect model, but we do expect the pattern to cluster around the 1-to-1 line.
+
+Now, here is the output of our final model, with larger k values. See that the Q-Q plot no longer curves, the histogram is bell shaped, and the comparison of response vs. fitted values clusters around a 1-to-1 line. These all indicate a much better model fit.
+
+```{r}
+# divider
+```
+
+gam.check() helps you understand whether you have enough basis functions to model the data.
+
+Instructions
+
+    Print diagnostics on model (mod) basis size and plots of model residuals, than answer the question.
+    
+- x2 does not have enough basis functions because it has a significant result in the diagnostic test.
+
+
+
+```{r}
+library(mgcv)
+set.seed(0)
+dat <- gamSim(1,n=200)
+
+library(mgcv)
+# Fit the model
+mod <- gam(y ~ s(x0, k = 5) + s(x1, k = 5) + s(x2, k = 5) + s(x3, k = 5),
+           data = dat, method = "REML")
+
+# Run the check function
+gam.check(mod)
+```
+You can use gam.check() to improve models by updating them based on its results.
+
+Instructions
+
+    Run the model diagnostics on mod.
+    Based on the diagnostics, re-fit the model as mod2, changing the number of basis functions (k) for failing smooths.
+    Run the model diagnostics on mod2 to ensure you have fixed the issue.
+
+```{r}
+set.seed(0)
+dat <- mgcv::gamSim(1,n=600, scale=0.6, verbose=FALSE)
+
+library(mgcv)
+# Fit the model
+mod <- gam(y ~ s(x0, k = 3) + s(x1, k = 3) + s(x2, k = 3) + s(x3, k = 3),
+           data = dat, method = "REML")
+
+# Check the diagnostics
+gam.check(mod)
+
+# Refit to fix issues
+mod2 <- gam(y ~ s(x0, k = 3) + s(x1, k = 3) + s(x2, k = 10) + s(x3, k = 3),
+           data = dat, method = "REML")
+
+# Check the new model
+gam.check(mod2)
+```
+mgcv's concurvity() function measures concurvity in model variables. Like gam.check(), we run this function on a model object to examine the quality of our model.
+
+concurvity() has two modes.
+
+The first mode, full = TRUE, reports overall concurvity for each smooth. Specifically, it shows how much each smooth is predetermined by all the other smooths.
+
+Since concurvity is complex, the function reports three different ways of measuring concurvity. Each is better in some situations. What is important is that you should always look at the worst case, and if the value is high (say, over 0.8), inspect your model more carefully.
+
+If any of these values from the full = TRUE mode is high, we will want to also use the second mode, setting full = FALSE. With full = FALSE, the function returns matrices of pairwise concurvities. These show the degree to which each variable is predetermined by each other variable, rather than all the other variables. This can be used to pinpoint which variables have a close relationship. Once again, the function returns three measures, this time as three matrices. Look for the worst-case scenario and see if variables with high values have problematic shapes or confidence intervals.
+
+```{r}
+# divider
+```
+
+Let’s take a look at concurvity in the fuel efficiency model variables.
+
+Instructions
+
+    Inspect the overall concurvity of mod, than answer the question.
+    
+- Which smooth is least pre-determined by all the other variables?
+- height has relatively low concurvity. It isn’t too similar to any of the other variables.
+
+```{r}
+library(gamair)
+set.seed(0)
+data("mpg", package="gamair", verbose=FALSE)
+
+library(mgcv)
+# Fit the model
+mod <- gam(hw.mpg ~ s(length) + s(width) + s(height) + s(weight),
+           data = mpg, method = "REML")
+
+# Check overall concurvity
+concurvity(mod, full = TRUE)
+```
+Now, let’s look at concurvity between model variables.
+
+Instructions
+
+    Inspect the pairwise concurvity for variables in mod, then answer the question.
+    
+- Which two variables have the greatest worst-case concurvity?
+- weight and width have worst-case concurvity of about 0.895.
+
+```{r}
+library(gamair)
+set.seed(0)
+data("mpg", package="gamair", verbose=FALSE)
+
+library(mgcv)
+# Fit the model
+mod <- gam(hw.mpg ~ s(length) + s(width) + s(height) + s(weight),
+           data = mpg, method = "REML")
+
+# Check pairwise concurvity
+concurvity(mod, full = FALSE)
+```
+
+
+
