@@ -69,7 +69,6 @@ crime_data <- crime_data %>% filter(`Vict_Age` > 0)
 crime_data <- crime_data %>%
     filter(!crime_data$`Vict_Sex` %in% c("X", "H") 
            & !is.na(`Vict_Sex`) & `Vict_Sex` != "")
-    #filter(!crime_data$Status %in% c("CC"))
 
 crime_data <- crime_data %>%
     filter(`Status` != "CC")
@@ -262,7 +261,7 @@ crime_data$Status <- as.factor(crime_data$Status)
 crime_data$`Vict_Sex` <- as.factor(crime_data$`Vict_Sex`)
 crime_data$`Status` <- relevel(crime_data$`Status`, ref = "IC")
 
-# subset data due to memory issues
+# subset data due to memory and performance issues
 set.seed(123)
 subset_crime_data <- crime_data[sample(nrow(crime_data), 100000), ]
 
