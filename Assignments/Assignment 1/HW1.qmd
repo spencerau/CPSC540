@@ -1,62 +1,452 @@
 ---
 title: "HW1"
-format: html
+format: pdf
 ---
 
 # Homework 1
 
-**Due October 27th, 2024 by 11:59pm**
+# Intro/Background
 
-For this homework assignment, choose one data set below (or slack me about a data set you want to use, e.g. for your research...). As this is a **graduate course** it is expected that you use course materials to complete this assignment, but also that **you do some research on your own to find helpful extensions relevant the course material** (e.g. if you're measuring reaction time, maybe a *gamma* likelihood would help, even if we didn't talk specifically about gamma regression; if you have a Likert scale item, maybe cumulative logit models would help)
+We are using an NIBRS-compliant [dataset](https://catalog.data.gov/dataset/crime
+-data-from-2020-to-present) submitted to the FBI by the Los Angeles Police 
+Department (LAPD). From the dataset website:
+>This dataset reflects incidents of crime in the City of Los Angeles dating back
+to 2020. This data is transcribed from original crime reports that are typed on 
+paper and therefore there may be some inaccuracies within the data. Some 
+location fields with missing data are noted as (0°, 0°). Address fields are only
+provided to the nearest hundred block in order to maintain privacy. This data is
+as accurate as the data in the database. Please note questions or concerns in 
+the comments."
 
--   look into the data set and describe in Intro/**Background**
+```{r, echo=FALSE}
+library(ggplot2)
+suppressPackageStartupMessages(library(dplyr))
+#library(nnet)
+library(reshape2)
+#library(MatchIt)
+suppressPackageStartupMessages(library(mgcv))
+```
 
--   choose one of the **research questions** associated with each data set (or come up with your own, equally complex Q!)
+```{r, echo=FALSE}
+library(readr)
+crime_data <- suppressWarnings(
+  read_csv("Crime_Data_from_2020_to_Present.csv",
+                      locale = locale(tz = "America/Los_Angeles"),
+                      show_col_types = FALSE)
+)
 
--   propose an **Analysis** (using the *tools/types of models we learned in class*, and any EDA tools such as plots, summaries) that answers the research question in the **Analysis** section. Also explain **why** you chose the analysis you did.
+#summary(crime_data)
+```
 
-    -   You **must** use models we covered in class, or extensions of these models. For example, I don't want you fitting neural networks. I want you to use the statistical models covered in this class, or closely related (check with me if you're unsure). For example: Ordinal Regression would be okay, Convolutional Neural Networks would not.
+## Examining the Data
+```{r, echo=FALSE}
+str(crime_data)
+```
 
--   **run** the analysis, and present results in **Results** section
+- This is an [official explanation](https://data.lacity.org/Public-Safety/Crime-
+Data-from-2020-to-Present/2nrs-mtv8/about_data) of the columns from the LAPD
 
--   discuss your findings in the **Discussion.** Also discuss limitations/roadblocks
 
-Your assignment should include all of the following elements:
+## Cleaning the Data
 
--   Causal Inference
+Initially the data has 986,500 rows corresponding to nearly 1 million individual
+crimes. However, upon cleaning the data, namely by filtering out crimes where
+the victim age is less than 0, if the victim sex is listed as "X" or "H", as
+well as dropping rows where certain columns may be missing, we are left with a
+dataset of 714,677 rows. Many of the aforementioned rows that have been dropped
+correspond to crimes that do not have a specific victim such as fraud, etc. We
+also rename the columns, replacing whitespace with underscores to avoid string
+issues.
 
--   Modeling (GLMs, GAMs)
+```{r, echo=FALSE}
+# rename cols due ot issues with whitesapce
+colnames(crime_data) <- gsub(" ", "_", colnames(crime_data))
 
--   2+ plots
+# filter out rows where Vict Age is <= 0
+crime_data <- crime_data %>% filter(`Vict_Age` > 0)
 
-Your assignment *can* but doesn't need to:
+# Filter out rows where gender is "H" or "N/A"
+crime_data <- crime_data %>%
+    filter(!crime_data$`Vict_Sex` %in% c("X", "H") 
+           & !is.na(`Vict_Sex`) & `Vict_Sex` != "")
+    #filter(!crime_data$Status %in% c("CC"))
 
--   use hypothesis testing
+crime_data <- crime_data %>%
+    filter(`Status` != "CC")
 
--   use p-values/bayes factors
+crime_data <- crime_data %>% 
+    filter(!is.na(`Vict_Descent`))
 
-## Groups
+invisible(sum(is.na(crime_data$Status)))
+invisible(sum(is.na(crime_data$`Vict_Sex`)))
+```
 
-If you would like to work in a group of **up to 2** you can, but must choose **one research question** per **person** (two total), using the *same data set*. You must let Dr. P know who is in your group before **October 15th EOD**.
+## Question 1 EDA
 
-# Report Sections
+The first question we try to answer is whether the age of the victim 
+(`Vict Age`) has a causal effect on the time a crime occurred (`Time Occ`).
 
-You should turn in a **readme**, a **code** file (.R, .Rmd, .qmd...etc) of your R code for analysis and a written **report**. The report should have the following sections:
+We create bins to sort the age of victims into groups of 10 years each, so for
+example 1-10, 11-20, etc. We also use bins to sort the time that the crime 
+occured into 4 hour blocks.
 
--   **Intro/Background**: Tell us about your **data set**, and your **research question**. Do some exploratory data analysis (make plots of relevant variables, make note of missing data, interesting patterns, relevant variables).
+```{r, echo=FALSE}
 
--   **Analysis**: Tell us **how** you plan to answer the questions using a combination of models, summaries, and data visualization. Also explain **why** you chose the analysis you did.
+# convert TIME OCC to numeric, check for issues with parsing, and then remove 
+# rows with issues
+crime_data$`TIME_OCC` <- as.numeric(crime_data$`TIME_OCC`)
+#problems(crime_data)
+crime_data <- crime_data[!is.na(crime_data$`TIME_OCC`), ]
 
--   **Results**: What is the **answer** to your research question? What did the analysis tell you? This is where you share plots, coefficients from models, summaries, etc.
+# wrap in invisible() so it doesnt print/output
+# convert TIME OCC from HHMM to minutes since midnight
+invisible(crime_data$time_in_minutes <- (crime_data$`TIME_OCC` %/% 100) * 60 
+                              + (crime_data$`TIME_OCC` %% 100))
 
--   **Discussion**: What are the **potential impacts/applications** of the answers you found? Were there any **limitations**? What would you do **differently** next time if you re-did the same assignment?
+crime_data$time_in_minutes <- as.numeric(crime_data$time_in_minutes)
 
-As a reminder, I expect the following files when you turn in your assignment:
+# str(crime_data$time_in_minutes)
 
--   PDF of report
+# create bins for victim age
+crime_data$vict_age_bins <- cut(crime_data$`Vict_Age`, 
+                                breaks = seq(0, 100, by = 10), 
+                                labels = paste(seq(0, 90, by = 10), 
+                                               seq(10, 100, by = 10), 
+                                               sep = "-"), 
+                                include.lowest = TRUE)
 
--   code file (.R, .qmd, .Rmd)
+# create bins for time (every 4 hours)
+crime_data$time_bins <- cut(
+  crime_data$time_in_minutes,
+  breaks = seq(0, 1440, by = 240),
+  labels = paste(
+    sprintf("%02d:00", seq(0, 20, by = 4)),
+    sprintf("%02d:00", seq(4, 24, by = 4)),
+    sep = "-"
+  ),
+  include.lowest = TRUE
+)
+```
 
--   a readme (.txt, .md)
+We then graph the counts of both the age and time bins, giving a general idea of
+the count of crimes with respect to both age and time.
 
-# Data Sets
+```{r, fig.height=6, echo=FALSE}
+# crime count by age bins
+age_bin_plot <- ggplot(crime_data, aes(x = vict_age_bins)) +
+  geom_bar(fill = "steelblue") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.3) +
+  labs(
+    x = "Victim Age (10-year bins)",
+    y = "Count of Incidents",
+    title = "Crime Count by Victim Age Bins"
+  )
+  #theme_minimal()
+
+age_bin_plot
+
+# crime count by time bins
+time_bin_plot <- ggplot(crime_data, aes(x = time_bins)) +
+  geom_bar(fill = "darkorange") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.3) +
+  labs(
+    x = "Time Occurred (4-hour bins)",
+    y = "Count of Incidents",
+    title = "Crime Count by Time Bins"
+  ) +
+  #theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+time_bin_plot
+```
+
+At a general glance, it seems that most victim ages are centered around 
+individuals in their 20s to 40s. There does seem to be some crime for older
+victims around 40-60. In terms of time bins, there doesn't seem to be as much
+concentration, with a decent distribution of crime occurring throughout the day.
+Crime incidents peak between 16:00-20:00 (4 PM to 8 PM), suggesting higher 
+activity during the late afternoon and early evening. Also, there are fewer 
+incidents between 04:00-08:00 (4 AM to 8 AM), which aligns with when people are
+typically asleep. This distribution shows that crimes are more likely to occur 
+during times when people are active and outside (afternoon and evening).
+
+
+## Question 2 EDA
+
+The second question we attempt to answer is whether the sex of the victim 
+(`Vict Sex`) can affect the `Status` of the crime.
+
+```{r, echo=FALSE}
+ggplot(data = crime_data, aes(x = `Vict_Sex`, fill = `Vict_Sex`)) +
+    geom_bar() +
+    geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.25) +
+    scale_fill_manual(values = c("M" = "lightblue", "F" = "pink"))
+```
+
+```{r, fig.height=9.5, fig.width=10, echo=FALSE}
+# Filter out rows where gender is "H" or "N/A"
+crime_data <- crime_data %>%
+      filter(!crime_data$`Vict_Sex` %in% c("X", "H") & !is.na(`Vict_Sex`) 
+             & `Vict_Sex` != "")
+      #filter(!crime_data$Status %in% c("CC"))
+
+crime_data <- crime_data %>%
+        filter(`Status` != "CC")
+
+ggplot(data = crime_data, aes(x = `Vict_Sex`, fill = `Vict_Sex`)) +
+    geom_bar() +
+    geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5) +
+    facet_wrap(~ `Status_Desc`, scales = "free_y") +
+    scale_y_continuous() +
+    labs(x = "Crime Status", y = "Count", title = "Victim Sex on Status") + 
+    #theme_minimal() +
+    scale_fill_manual(values = c("M" = "lightblue", "F" = "pink"))
+```
+
+Overall it seems that there are slightly more male victims of crime vs female
+victims. That being said, it is kind of interesting that when it comes to 
+juvenile arrests vs adult arrests, there are more male victims for the former,
+whereas for the latter, adult arrests, there do seem to be more male arrests.
+The juvenile and adult other categories basically act as a "catch-all", 
+accounting for situations such as charges being dropped, citations, and other 
+situations that did not lead to a conviction. It is also important to note there
+is a significant increase in disparity when comparing Male and Female victims 
+when it comes to investigation continuing.
+
+
+# Analysis
+
+## Question 1
+
+To answer whether the age of the victim affects the time that the crime 
+occurred, we decided to utilize a GAM without propensity score matching given 
+that both victim age and time_in_minutes (from midnight), a custom column we 
+made to be easier to work with, are continuous values. Overall, propensity score
+matching would be much less impactful when not dealing with categorical values.
+The GAM model includes the victim age as a smooth term to map non-linear 
+relationships and adjusts for victim race, crime code, area, and victim sex as
+additional covariate variables.
+
+```{r, echo=FALSE}
+# should work now after the weird stuff with whitespace
+# fit GAM and set victim age as a smooth term for potential non-linear relation
+age_time_model <- gam(time_in_minutes ~ s(`Vict_Age`) + `Vict_Descent` 
+                      + `Crm_Cd` + `AREA` + `Vict_Sex`,
+                data = crime_data, 
+                family = gaussian())
+
+```
+
+## Question 2
+
+Since we are dealing with a binary value, namely the victim being male or
+female, we decided to utilize propensity score matching in order to compare
+outcomes based on some covariate values. We used logistic regression via a GLM 
+to model whether a victim as male or female based on the covariates. Then we 
+we used nearest neighbor matching to match similar propensity scores in order to
+create a matched dataset that reduces bias. The covariates in question we decided
+to consider are the victim age bins, victim race, the crime (code), and the
+general area the crime occurred in. We then used a multinomal logistic 
+regression (given that there are more than 2 possible crime status outcomes) in 
+order to model the (crime) Status variable based on victim sex. We did have to 
+subset the data using a subset of 100,000 rows due to both memory and 
+performance constraints. 
+
+```{r, echo=FALSE}
+# need to reload nnet due to conflicts with the mgcv GAM 
+library(nnet)
+library(MatchIt)
+
+# set reference categ to "IC"
+crime_data$Status <- as.factor(crime_data$Status)
+crime_data$`Vict_Sex` <- as.factor(crime_data$`Vict_Sex`)
+crime_data$`Status` <- relevel(crime_data$`Status`, ref = "IC")
+
+# subset data due to memory issues
+set.seed(123)
+subset_crime_data <- crime_data[sample(nrow(crime_data), 100000), ]
+
+# Propensity Score = estimate of being in a group (M or F)
+# DO NOT include (Arrest) Status as covariate
+propensity_model <- glm(`Vict_Sex` ~ `vict_age_bins` + `Vict_Descent` + `Crm_Cd` 
+                        + `AREA`,
+                        data = subset_crime_data, family = binomial)
+
+propensity_scores <- predict(propensity_model, type = "response")
+
+# nearest neighbor matching using propensity scores
+matched_data <- matchit(`Vict_Sex` ~ `vict_age_bins` + `Vict_Descent` + `Crm_Cd` 
+                        + `AREA`,
+                        data = subset_crime_data, 
+                        method = "nearest", 
+                        ratio = 1, 
+                        caliper = 0.05)
+
+matched_data_df <- match.data(matched_data)
+
+# need to use a multinomial logistic regression GLM since multiple categorical 
+# variables for status, also some stuff with namespacing issues cause mgcv
+sex_status_model <- nnet::multinom(`Status` ~ `Vict_Sex`, data = matched_data_df)
+```
+
+
+# Results
+
+## Question 1
+
+```{r, echo=FALSE}
+summary(age_time_model)
+```
+
+Given that the p-value for the smooth term of victim age is extremely low, at 
+p < 2e-16, there is a strong non-linear relationship between victim age and the
+time that a crime occurred.
+
+```{r, echo=FALSE}
+# graphing this with plot vs ggplot is significantly less janky since it gives 
+# predicted values with confidence intervals easily 
+plot(age_time_model, 
+     select = 1, 
+     shade = TRUE, 
+     shade.col = "lightblue", # confidence interval 
+     col = "blue",
+     se = TRUE, 
+     main = "Effect of Victim Age on Crime Time", 
+     ylab = "Estimated Effect on Crime Time (Minutes)", 
+     xlab = "Victim Age",
+     # make it a bit bigger for readability
+     cex.main = 1.5,
+     cex.lab = 1.2,
+     cex.axis = 1)  
+
+#ggplot(data = crime_data, aes(x = `Vict_Age`, ))
+```
+
+The solid blue line represents the fitted smooth function of victim age on the 
+time a crime occurred. The shaded light blue area around the line represents a 
+default 95% confidence interval, with a larger area corresponding to greater 
+uncertainty at the respective age range, and vice-versa. In general, this plot 
+shows how the estimated time of day for a crime tends to occur earlier or later 
+depending on the victim’s age, with upward trends indicating crimes that occur
+later in the day and downward trends indicating crimes that occur earlier in the
+day for the respective age. (basically we look at the slope)
+
+For example, when we look at younger victims, especially those closer to the age
+of 20, it would appear that crimes involving them tend to occur much later in 
+the day. However, when we get to the 20-30 age, it appears that the line 
+approaches to 0, and from 30-40, the line remains relatively flat throughout the
+age bracket, meaning that for those 20-30, crime occurs earlier in the day 
+whereas for those 30-40, there isn't really any correlation to their age and the
+time a crime occurs. For victims aged 40-90, it does seem like there is a 
+gradual downward trend, indicating that crimes with older victims occur earlier
+in the day. Interestingly enough, for those aged 90-100, the line trends up
+again, indicating that crime related to them occur later in the day. However, 
+the respective confidence interval area is also quite high, meaning that the
+estimate is not as certain.
+
+Overall, the age of a victim plays a significant role in determining when the 
+crime in question occurs. 
+
+## Question 2
+
+```{r, echo=FALSE}
+# coefficients give log odds
+summary(sex_status_model)
+```
+
+In terms of the coefficients, they represent the log odds for each crime status
+relative to the reference category, which in this case, we used a female victim
+with the crime status being "IC" or investigation continuing. For example, when
+the victim is male, then the log odds decrease by 0.1366 compared to if the 
+victim is female for an adult arrest. Also, for juvenile arrests, then if the
+victim is male, the log odds increases by 0.1371.
+
+```{r, echo=FALSE}
+# give odds ratios via exponentiation
+exp(coef(sex_status_model))
+```
+
+Here we perform exponentiation on the coefficients to get the odds ratios in 
+order to get values that are "easier" to interpret. For example, for an adult 
+arrest, a value of 0.87 for a male victim means that an adult arrest for a male 
+victim is 13% less likely compared to a female victim. For 0.745 for an AO, a 
+male victim will be roughly 25.5% less likely to have an adult other status to a
+crime vs a female victim. Also, for juvenile crimes, a male victim will be 14.7% 
+more likely to lead to a juvenile arrest vs a female victim. In addition, a male
+victim will be 37.6% more likely to have a juvenile other status.
+
+```{r, echo=FALSE}
+predicted_probs <- predict(sex_status_model, type = "probs")
+
+predicted_probs_df <- as.data.frame(predicted_probs)
+# need to add Victim Sex back into the DF
+predicted_probs_df$`Vict Sex` <- matched_data_df$`Vict_Sex`
+
+#head(predicted_probs_df)
+
+# melt the data via reshape2 for easy ggplot graphing
+predicted_probs_melt <- melt(predicted_probs_df, id.vars = "Vict Sex", 
+                             variable.name = "Status", 
+                             value.name = "Probability")
+
+```
+
+```{r, fig.height=5, echo=FALSE}
+ggplot(predicted_probs_melt, aes(x = `Vict Sex`, y = Probability, 
+                                 fill = `Vict Sex`)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    geom_text(aes(label = round(Probability, 4)), 
+              vjust = -0.5) +
+    facet_wrap(~ `Status`, scales = "free_y") +
+    labs(title = "Predicted Probabilities of Arrest Status by Victim Sex",
+       x = "Victim Sex", y = "Predicted Probability") +
+    theme_minimal() +
+    scale_fill_manual(values = c("M" = "lightblue", "F" = "pink")) +
+    # use this for extra space above bars (so it doesnt cut off values)
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+```
+
+Here we've decided to graph the respective predicted probability of both a male
+and female victim of a crime being in each possible status. For example, lets 
+look at the top middle graph, represented by "AA" or adult arrests. The female
+bar has a value of 0.0911, and the male bar has a value of 0.0837. This means 
+that 9.11% of male victim cases are expected to have an adult arrested status,
+while 8.37% of female cases are expected to have an adult arrested status.
+
+Overall it does seem that the sex of the victim does have some effect on the 
+status of the crime. For example, if there is a female victim, there is a 
+greater chance of the crime being an adult arrest, adult other, or juvenile
+other. Conversely, if the victim is male, then there is a greater chance of the 
+crime being an investigation continuing or juvenile arrest.
+
+
+# Discussion
+
+Regarding question 1 (does victim age affect crime time), its kind of 
+interesting how in general, crime for older victims tends to occur earlier in 
+the day, whereas for younger victims, crime occurs later in the day. A possible 
+reason for this is that younger folks are either in school or working during the
+day, whereas older folks could be out and about during the day. In addition, 
+younger victims are more likely to be out during the evening, whereas older 
+victims could be at home, sleeping early, etc. 
+
+Regarding question 2 (does victim sex affect crime status), in general it seems
+that for female victims, its much more likely for a crime to be "resolved" 
+especially due to the disparity in male and female victims when considering how 
+many more investigation continuing cases are comprised of male victims. It is 
+important to note that at least for juvenile cases, male victims were more 
+likely to lead to a juvenile arrest. Part of this could be related to the fact 
+that there may be more public pressure to investigate and close cases that 
+relate to violence against women.
+
+In general, the dataset does seem somewhat limited. For example, there is no 
+information about both the race and gender of the actual perpetrator of the 
+crime. In addition, it would be great if there was a greater level of 
+granularity when it came to describing crimes. For example, including whether a
+crime as violent or non-violent, a sex-related crime, a felony or misdemeanor, 
+etc would all be helpful in seeing more interesting trends. We think this is 
+especially important as crime data can be interpreted in many ways and lead to 
+serious real-world implications, such as additional funding, an increase in 
+policing, and an overall varying approach towards how to even approach policing,
+such as being stricter on crime vs a more harm-reduction, community based 
+approach.
