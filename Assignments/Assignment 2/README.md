@@ -10,7 +10,8 @@
 
 ### References
 <ul>
-  <li></li>
+  <li>ChatGPT for Frequentist Graph on Q1</li>
+  <li>ChatGPT for C++ cmath compiler issues</li>
 </ul>
 
 ### Notes
