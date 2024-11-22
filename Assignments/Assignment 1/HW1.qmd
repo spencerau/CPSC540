@@ -1,5 +1,6 @@
 ---
 title: "HW1"
+author: "Spencer Au"
 format: pdf
 ---
 
