@@ -1,0 +1,312 @@
+
+```{r}
+# import libraries
+library(readr)
+# q3 PSM
+library(MatchIt)
+# q4 bayesian glm
+library(tidyr)
+library(dplyr)
+library(brms)
+
+# graphs/visualization
+library(ggplot2)
+library(broom)
+library(bayesplot)
+
+```
+
+```{r}
+# load in data
+# games_data <- suppressWarnings(
+#     read_csv("games_may2024_cleaned.csv",
+#     show_col_types = FALSE)
+# )
+
+games_data <- read.csv("games_may2024_cleaned.csv")
+
+games_data$release_date <- as.Date(games_data$release_date, format = "%Y-%m-%d")
+
+games_data$DaysSinceRelease <- as.numeric(Sys.Date() - games_data$release_date)
+
+#colnames(games_data)
+head(games_data)
+
+#head(games_data)
+```
+
+## Question 3 - What is the direct causal effect of additional DLC on the ratio of average recent playtime to the overall average playtime (or peak_ccu)?
+
+change to propensity score matching
+
+```{r}
+# filter for q3
+q3_data <- games_data[, c("name", "average_playtime_2weeks", "average_playtime_forever", "dlc_count", 
+                    "DaysSinceRelease", "estimated_owners")]
+
+q3_data$estimated_owners <- sapply(strsplit(q3_data$estimated_owners, " - "), function(x) {
+  mean(as.numeric(x))
+})
+# q3_data$owners_lower <- sapply(strsplit(games_data$estimated_owners, " - "), function(x) {
+#   as.numeric(x[1]) 
+# })
+
+# drop games with no owners (though certain games seem to have incorrect owner
+# count like Borderlands Pre-Sequel, Marvel Snap, Overwatch 2, etc)
+q3_data <- q3_data[q3_data$estimated_owners > 0, ]
+
+
+#head(q3_data)
+```
+
+
+```{r}
+# interaction term for diff
+q3_data$dlc_binary <- ifelse(q3_data$dlc_count > 0, 1, 0)
+
+# propensity score matching
+psm_model <- matchit(dlc_binary ~ DaysSinceRelease + estimated_owners, 
+                     data = q3_data, 
+                     method = "nearest", 
+                     distance = "logit",
+                     ratio = 3) # this matches 1x dlc to 3x no dlc
+
+summary(psm_model)
+
+matched_data <- match.data(psm_model)
+
+psm_effect_model <- lm(average_playtime_2weeks ~ dlc_count + DaysSinceRelease + estimated_owners, 
+                       data = matched_data)
+
+summary(psm_effect_model)
+```
+
+```{r}
+plot(residuals(psm_effect_model))
+```
+
+```{r}
+library(ggplot2)
+ggplot(matched_data, aes(x = factor(dlc_binary), y = average_playtime_2weeks)) +
+  geom_boxplot() +
+  labs(title = "Effect of DLC on Playtime (Matched Data)",
+       x = "DLC Presence (0 = No DLC, 1 = With DLC)",
+       y = "Average Playtime (Last 2 Weeks)") +
+  theme_minimal()
+```
+
+```{r}
+trimmed_data <- matched_data[matched_data$average_playtime_2weeks > 0 & matched_data$average_playtime_2weeks < 2000, ]
+
+ggplot(trimmed_data, aes(x = factor(dlc_binary), y = average_playtime_2weeks)) +
+  geom_boxplot(outlier.shape = NA, fill = c("lightblue", "orange"), alpha = 0.7) +
+  #geom_jitter(width = 0.2, alpha = 0.3, color = "black") +
+  scale_y_log10() + 
+  labs(
+    title = "Effect of DLC on Playtime (Matched Data)",
+    x = "DLC Presence (0 = No DLC, 1 = With DLC)",
+    y = "Average Playtime (Last 2 Weeks, Log Scale)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+confint(psm_effect_model, level = 0.95)
+```
+intercept: predicted value (avg playtime in last 2 weeks) when all predictors
+are at baseline of 0 (0 dlc, etc)
+
+The predicted average playtime for games with 0 DLCs is likely between 8.58 and 11.57 hours.
+
+	•	2.5%: 0.0078 hours (lower bound). With 95% confidence, the effect of one additional DLC is at least 0.0078 hours.
+	•	97.5%: 0.1242 hours (upper bound). With 95% confidence, the effect of one additional DLC is no greater than 0.1242 hours.
+	•	Interpretation: The effect of DLC count on playtime is small but statistically significant, as the confidence interval does not include 0.
+
+
+confidence interval plot
+```{r}
+coef_table <- as.data.frame(confint(psm_effect_model))
+coef_table$Coefficient <- rownames(coef_table)
+coef_table$Estimate <- coef(psm_effect_model)
+coef_table <- coef_table[coef_table$Coefficient == "dlc_count", ]
+colnames(coef_table) <- c("Lower", "Upper", "Coefficient", "Estimate")
+
+ggplot(coef_table, aes(x = Coefficient, y = Estimate)) +
+  geom_point(size = 4, color = "blue") +
+  geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.2, color = "black") +
+  labs(
+    title = "Confidence Interval for dlc_count Coefficient",
+    x = "Coefficient",
+    y = "Estimate"
+  ) +
+  theme_minimal()
+```
+
+
+## Question 4 - How do metacritic scores compare to the percentage of total positive reviews?
+
+```{r}
+# data for q4
+# filter for q4
+q4_data <- games_data[, c("name", "price", "genres",  "metacritic_score", 
+                          "pct_pos_total", "estimated_owners", 
+                          "recommendations", "peak_ccu")] 
+
+# alternate but this is to grab the midpoint, not just if the left side is 0
+q4_data$estimated_owners <- sapply(strsplit(q4_data$estimated_owners, " - "), function(x) {
+  mean(as.numeric(x))
+})
+
+# this only gets rid of like 15 rows
+q4_data <- q4_data[q4_data$estimated_owners > 0, ]
+```
+
+
+```{r}
+# first we look at the genres to see which genres to add as custom binary columns
+
+genre_counts <- q4_data %>%
+  separate_rows(genres, sep = ", ") %>%
+  mutate(genres = gsub("[[:punct:]]", "", genres)) %>%
+  count(genres, sort = TRUE)
+
+ggplot(genre_counts, aes(x = reorder(genres, -n), y = n)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(
+    title = "Distribution of Genres",
+    x = "Genre",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# create custom binary columns fo the genres we want
+selected_genres <- c("Indie", "Casual", "Action", "Adventure", "Simulation", 
+                     "Strategy", "RPG", "Early_Access", "Sports", 
+                     "Free_to_Play", "Racing", "Massively_Multiplayer")
+
+for (genre in selected_genres) {
+  genre_original <- gsub("_", " ", genre)
+  q4_data[[genre]] <- as.integer(grepl(genre_original, q4_data$genres))
+}
+
+head(q4_data[, c("name", "genres", selected_genres)])
+```
+
+```{r}
+summary(q4_data[, c("pct_pos_total", "metacritic_score", "price")])
+
+ggplot(q4_data, aes(x = pct_pos_total)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "black") +
+  labs(title = "Distribution of pct_pos_total")
+
+ggplot(q4_data, aes(x = metacritic_score)) +
+  geom_histogram(bins = 20, fill = "orange", color = "black") +
+  labs(title = "Distribution of Metacritic Scores")
+
+q4_data_no_zeros <- q4_data[q4_data$pct_pos_total > 0 & q4_data$metacritic_score > 0, ]
+```
+```{r}
+summary(q4_data_no_zeros[, c("pct_pos_total", "metacritic_score", "price")])
+
+ggplot(q4_data_no_zeros, aes(x = pct_pos_total)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "black") +
+  labs(title = "Distribution of pct_pos_total")
+
+ggplot(q4_data_no_zeros, aes(x = metacritic_score)) +
+  geom_histogram(bins = 20, fill = "orange", color = "black") +
+  labs(title = "Distribution of Metacritic Scores")
+
+# ggplot(q4_data_no_zeros, aes(x = price)) +
+#   geom_histogram(bins = 30, fill = "green", color = "black") +
+#   labs(title = "Distribution of price")
+
+ppt_sd <- sd(q4_data_no_zeros$pct_pos_total)
+print(sprintf("Standard Deviation of pct_pos_total: %.2f", ppt_sd))
+# 
+# ms_sd <- sd(q4_data_no_zeros$metacritic_score)
+# print(sprintf("Standard Deviation of Metacritic Scores: %.2f", ms_sd))
+# 
+# price_sd <- sd(q4_data_no_zeros$price)
+# print(sprintf("Standard Deviation of Price: %.2f", price_sd))
+```
+
+```{r}
+# covariates for each custom binary column
+# have to hardcode since paste is acting weird with selected_genres
+formula <- as.formula(
+  "pct_pos_total ~ metacritic_score + price + estimated_owners + recommendations + 
+   peak_ccu + Indie + Casual + Action + Adventure + Simulation + Strategy + RPG + 
+   `Early_Access` + Sports + `Free_to_Play` + Racing + `Massively_Multiplayer`"
+)
+
+bayesian_model <- brm(
+    formula = formula,
+    data = q4_data_no_zeros,
+    family = gaussian(),
+    prior = c(
+        # pct_pos has a mean of ~80 and std of ~15
+        prior(normal(80, 15), class = "Intercept"),
+        prior(normal(0, 1), class = "b", coef = "metacritic_score"),
+        prior(normal(0, 1), class = "b", coef = "price"),
+        prior(normal(0, 1), class = "b", coef = "estimated_owners"),
+        prior(normal(0, 1), class = "b", coef = "recommendations"),
+        prior(normal(0, 1), class = "b", coef = "peak_ccu"),
+        prior(normal(0, 5), class = "b"),  # genres; generally weakly informative prior since genres is binary
+        prior(student_t(3, 0, 15), class = "sigma")
+    ),
+    cores = 4, # cpu cores
+)
+```
+
+```{r}
+summary(bayesian_model)
+```
+```{r}
+# pp_check(bayesian_model)
+# 
+# plot(bayesian_model)
+```
+
+```{r}
+# CI and ROPE
+mcmc_areas(
+  bayesian_model, 
+  pars = c("b_metacritic_score", "b_price", "b_estimated_owners"),
+  prob = 0.95,
+  prob_outer = 1
+) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Posterior Distributions with Credible Intervals",
+    subtitle = "Effects of Key Predictors on pct_pos_total",
+    x = "Estimate"
+  )
+```
+Key Components of the Plot
+	1.	Posterior Distributions:
+	•	The horizontal lines represent the 95% credible intervals (CI) for each predictor’s posterior distribution.
+	•	These intervals indicate where the model estimates the true effect size is likely to fall with 95% certainty.
+	2.	Dashed Vertical Line at Zero:
+	•	This line represents no effect. If a credible interval crosses or centers around zero, it suggests that the predictor might not have a significant or practically meaningful effect on the outcome.
+	3.	Predictor Labels:
+	•	Each horizontal line corresponds to a specific predictor (b_metacritic_score, b_price, and b_estimated_owners).
+	
+```{r}
+marginal_effects_plot <- marginal_effects(
+  bayesian_model, 
+  effects = "metacritic_score",
+  conditions = NULL
+)
+
+plot(marginal_effects_plot, points = TRUE) +
+  labs(
+    title = "Effect of Metacritic Score on pct_pos_total",
+    x = "Metacritic Score",
+    y = "Percentage of Positive Reviews"
+  ) +
+  theme_minimal()
+```
+
