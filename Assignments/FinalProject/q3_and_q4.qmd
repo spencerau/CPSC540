@@ -80,12 +80,15 @@ dag <- dagify(
   outcome = "average_playtime_2weeks"
 )
 
-ggdag(dag, 
+dag_plot <- ggdag(dag, 
       node_size = 20,
       layout = "sugiyama",
       text_col = "orange"
 ) + 
   theme_dag()
+
+
+ggsave("q3_dag_plot.png", dag_plot, width = 12, height = 8, dpi = 300)
 ```
 
 
@@ -146,15 +149,6 @@ confint(psm_effect_model, level = 0.95)
 intercept: predicted value (avg playtime in last 2 weeks) when all
 predictors are at baseline of 0 (0 dlc, etc)
 
-The predicted average playtime for games with 0 DLCs is likely between
-8.58 and 11.57 hours.
-
-```         
-•   2.5%: 0.0078 hours (lower bound). With 95% confidence, the effect of one additional DLC is at least 0.0078 hours.
-•   97.5%: 0.1242 hours (upper bound). With 95% confidence, the effect of one additional DLC is no greater than 0.1242 hours.
-•   Interpretation: The effect of DLC count on playtime is small but statistically significant, as the confidence interval does not include 0.
-```
-
 confidence interval plot
 
 ```{r}
@@ -192,6 +186,29 @@ q4_data$estimated_owners <- sapply(strsplit(q4_data$estimated_owners, " - "), fu
 # this only gets rid of like 15 rows
 q4_data <- q4_data[q4_data$estimated_owners > 0, ]
 ```
+
+```{r}
+# dag for q4
+dag_q4 <- dagify(
+  pct_pos_total ~ metacritic_score + estimated_owners + genres,
+  exposure = "metacritic_score",
+  outcome = "pct_pos_total"
+)
+
+dag_plot_q4 <- ggdag(
+  dag_q4, 
+  node_size = 20, 
+  layout = "sugiyama", 
+  text_col = "orange"
+) + 
+  theme_dag() +
+  theme(plot.margin = margin(2, 2, 2, 2, "cm"))
+
+dag_plot_q4
+
+ggsave("dag_q4_plot.png", dag_plot_q4, width = 12, height = 8, dpi = 300)
+```
+
 
 ```{r}
 # first we look at the genres to see which genres to add as custom binary columns
